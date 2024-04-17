@@ -156,7 +156,7 @@ class write_buffer:
         self.trace_matrix_cache_empty = True
 
     #
-    def service_writes(self, incoming_requests_arr_np, incoming_cycles_arr_np):
+    def service_writes(self, incoming_requests_arr_np, incoming_cycles_arr_np,skip_dram_writes = 0):
         assert incoming_cycles_arr_np.shape[0] == incoming_requests_arr_np.shape[0], 'Cycles and requests do not match'
         out_cycles_arr = []
         offset = 0

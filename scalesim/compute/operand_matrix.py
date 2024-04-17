@@ -224,6 +224,7 @@ class operand_matrix(object):
     # function to get a part or the full ifmap operand
     def get_ifmap_matrix_part(self, start_row=0, num_rows=-1, start_col=0,
                               num_cols=-1):
+        print("Here")
         if num_rows == -1:
             num_rows = self.ofmap_px_per_filt
         if num_cols == -1:

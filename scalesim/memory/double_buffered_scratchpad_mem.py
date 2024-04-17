@@ -65,7 +65,7 @@ class double_buffered_scratchpad:
                    ifmap_backing_buf_bw=1, filter_backing_buf_bw=1, ofmap_backing_buf_bw=1):
 
         self.estimate_bandwidth_mode = estimate_bandwidth_mode
-
+        print(self.estimate_bandwidth_mode,"set params")
         if self.estimate_bandwidth_mode:
             self.ifmap_buf = rdbuf_est()
             self.filter_buf = rdbuf_est()
@@ -149,7 +149,7 @@ class double_buffered_scratchpad:
         return out_cycles_arr_np
 
     #
-    def service_memory_requests(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat):
+    def service_memory_requests(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat , skip_dram_reads = 0 , skip_dram_writes =0):
         assert self.params_valid_flag, 'Memories not initialized yet'
 
         ofmap_lines = ofmap_demand_mat.shape[0]
@@ -163,7 +163,10 @@ class double_buffered_scratchpad:
         ifmap_serviced_cycles = []
         filter_serviced_cycles = []
         ofmap_serviced_cycles = []
-
+        print(skip_dram_reads,skip_dram_writes)
+#################
+## set skip_dram_reads
+       
         pbar_disable = not self.verbose
         for i in tqdm(range(ofmap_lines), disable=pbar_disable):
 
@@ -171,7 +174,7 @@ class double_buffered_scratchpad:
 
             ifmap_demand_line = ifmap_demand_mat[i, :].reshape((1,ifmap_demand_mat.shape[1]))
             ifmap_cycle_out = self.ifmap_buf.service_reads(incoming_requests_arr_np=ifmap_demand_line,
-                                                            incoming_cycles_arr=cycle_arr)
+                                                            incoming_cycles_arr=cycle_arr,skip_dram_reads=skip_dram_reads)
             ifmap_serviced_cycles += [ifmap_cycle_out[0]]
             ifmap_stalls = ifmap_cycle_out[0] - cycle_arr[0] - ifmap_hit_latency
 
@@ -183,7 +186,7 @@ class double_buffered_scratchpad:
 
             ofmap_demand_line = ofmap_demand_mat[i, :].reshape((1, ofmap_demand_mat.shape[1]))
             ofmap_cycle_out = self.ofmap_buf.service_writes(incoming_requests_arr_np=ofmap_demand_line,
-                                                             incoming_cycles_arr_np=cycle_arr)
+                                                             incoming_cycles_arr_np=cycle_arr,skip_dram_writes=0)
             ofmap_serviced_cycles += [ofmap_cycle_out[0]]
             ofmap_stalls = ofmap_cycle_out[0] - cycle_arr[0] - 1
 

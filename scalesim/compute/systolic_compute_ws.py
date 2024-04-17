@@ -87,13 +87,14 @@ class systolic_compute_ws:
     #
     def create_ifmap_prefetch_mat(self):
         assert self.params_set_flag, 'Parameters are not set'
-
+        print(self.row_fold)
         for fr in range(self.row_fold):
             start_col_idx = fr * self.arr_row
+            print(fr,self.arr_row,start_col_idx)
             end_col_idx = min(start_col_idx + self.arr_row, self.Sr)
-
+           
             delta = self.arr_row - (end_col_idx - start_col_idx)
-
+            print(end_col_idx,start_col_idx,self.Sr,delta)
             this_fold_prefetch = self.ifmap_op_mat[:,start_col_idx: end_col_idx]
 
             #If there is under utilization, fill them with null requests

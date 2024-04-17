@@ -206,7 +206,7 @@ class read_buffer:
 
     #
     def service_reads(self, incoming_requests_arr_np,   # 2D array with the requests
-                            incoming_cycles_arr):       # 1D vector with the cycles at which req arrived
+                            incoming_cycles_arr,skip_dram_reads=0):       # 1D vector with the cycles at which req arrived
         # Service the incoming read requests
         # returns a cycles array corresponding to the requests buffer
         # Logic: Always check if an addr is in active buffer.
@@ -235,14 +235,17 @@ class read_buffer:
                 # if addr not in self.active_buffer_contents: #this is super slow!!!
                 # Fixing for ISSUE #14
                 # if not self.active_buffer_hit(addr):  # --> While loop ensures multiple prefetches if needed
-                while not self.active_buffer_hit(addr):
-                    self.new_prefetch()
-                    potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
-                    offset += potential_stall_cycles        # Offset increments if there were potential stalls
+                
+                    while not self.active_buffer_hit(addr):
+                        self.new_prefetch()
+                        potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
+                        if(skip_dram_reads == 0):  ### you still need to read DRAM for the matrices to be present.
+                            potential_stall_cycles =0 
+                        offset += potential_stall_cycles        # Offset increments if there were potential stalls
 
             out_cycles = cycle + offset
             out_cycles_arr.append(out_cycles)
-
+        
         out_cycles_arr_np = np.asarray(out_cycles_arr).reshape((len(out_cycles_arr), 1))
 
         return out_cycles_arr_np

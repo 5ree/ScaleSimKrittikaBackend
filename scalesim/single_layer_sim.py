@@ -109,8 +109,12 @@ class single_layer_sim:
 
         # 1.1 Get the operand matrices
         _, ifmap_op_mat = self.op_mat_obj.get_ifmap_matrix()
+        print(ifmap_op_mat)
         _, filter_op_mat = self.op_mat_obj.get_filter_matrix()
+        print(filter_op_mat)
+        print("output")
         _, ofmap_op_mat = self.op_mat_obj.get_ofmap_matrix()
+        print(ofmap_op_mat)
 
         self.num_compute = self.topo.get_layer_num_ofmap_px(self.layer_id) \
                            * self.topo.get_layer_window_size(self.layer_id)
@@ -124,6 +128,16 @@ class single_layer_sim:
         # 1.3 Get the no compute demand matrices from for 2 operands and the output
         ifmap_prefetch_mat, filter_prefetch_mat = self.compute_system.get_prefetch_matrices()
         ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat = self.compute_system.get_demand_matrices()
+        print("##################")
+        print(ifmap_prefetch_mat)
+        print(filter_prefetch_mat)
+        print("yo")
+        print(ifmap_demand_mat)
+
+        print(filter_demand_mat)
+        print("yo") 
+        print("yo")
+        print(ofmap_demand_mat)
         #print('DEBUG: Compute operations done')
         # 2. Setup the memory system and run the demands through it to find any memory bottleneck and generate traces
 

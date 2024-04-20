@@ -54,7 +54,8 @@ class double_buffered_scratchpad:
         self.estimate_bandwidth_mode = False,
         self.traces_valid = False
         self.params_valid_flag = True
-
+        self.skip_dram_reads = 0
+        self.skip_dram_writes = 0
     #
     def set_params(self,
                    verbose=True,
@@ -62,10 +63,12 @@ class double_buffered_scratchpad:
                    word_size=1,
                    ifmap_buf_size_bytes=2, filter_buf_size_bytes=2, ofmap_buf_size_bytes=2,
                    rd_buf_active_frac=0.5, wr_buf_active_frac=0.5,
-                   ifmap_backing_buf_bw=1, filter_backing_buf_bw=1, ofmap_backing_buf_bw=1):
+                   ifmap_backing_buf_bw=1, filter_backing_buf_bw=1, ofmap_backing_buf_bw=1,skip_dram_reads=0,skip_dram_writes=0):
 
         self.estimate_bandwidth_mode = estimate_bandwidth_mode
-        print(self.estimate_bandwidth_mode,"set params")
+        self.skip_dram_reads = skip_dram_reads
+        self.skip_dram_writes = skip_dram_writes
+        #print(self.estimate_bandwidth_mode,"set params")
         if self.estimate_bandwidth_mode:
             self.ifmap_buf = rdbuf_est()
             self.filter_buf = rdbuf_est()
@@ -74,7 +77,7 @@ class double_buffered_scratchpad:
                                       total_size_bytes=ifmap_buf_size_bytes,
                                       word_size=word_size,
                                       active_buf_frac=rd_buf_active_frac,
-                                      backing_buf_default_bw=ifmap_backing_buf_bw)
+                                      backing_buf_default_bw=ifmap_backing_buf_bw, skip_dram_reads = skip_dram_reads)
 
             self.filter_buf.set_params(backing_buf_obj=self.filter_port,
                                        total_size_bytes=filter_buf_size_bytes,
@@ -89,7 +92,7 @@ class double_buffered_scratchpad:
                                       total_size_bytes=ifmap_buf_size_bytes,
                                       word_size=word_size,
                                       active_buf_frac=rd_buf_active_frac,
-                                      backing_buf_bw=ifmap_backing_buf_bw)
+                                      backing_buf_bw=ifmap_backing_buf_bw, skip_dram_reads = skip_dram_reads)
 
             self.filter_buf.set_params(backing_buf_obj=self.filter_port,
                                        total_size_bytes=filter_buf_size_bytes,
@@ -101,7 +104,7 @@ class double_buffered_scratchpad:
                                   total_size_bytes=ofmap_buf_size_bytes,
                                   word_size=word_size,
                                   active_buf_frac=wr_buf_active_frac,
-                                  backing_buf_bw=ofmap_backing_buf_bw)
+                                  backing_buf_bw=ofmap_backing_buf_bw,skip_dram_writes =skip_dram_writes )
 
         self.verbose = verbose
 
@@ -149,7 +152,7 @@ class double_buffered_scratchpad:
         return out_cycles_arr_np
 
     #
-    def service_memory_requests(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat , skip_dram_reads = 0 , skip_dram_writes =0):
+    def service_memory_requests(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat, layer_id = 0 ):
         assert self.params_valid_flag, 'Memories not initialized yet'
 
         ofmap_lines = ofmap_demand_mat.shape[0]
@@ -163,18 +166,19 @@ class double_buffered_scratchpad:
         ifmap_serviced_cycles = []
         filter_serviced_cycles = []
         ofmap_serviced_cycles = []
-        print(skip_dram_reads,skip_dram_writes)
+        #print(skip_dram_reads,skip_dram_writes)
 #################
 ## set skip_dram_reads
        
         pbar_disable = not self.verbose
+        #print(range(ofmap_lines))
         for i in tqdm(range(ofmap_lines), disable=pbar_disable):
 
             cycle_arr = np.zeros((1,1)) + i + self.stall_cycles
 
             ifmap_demand_line = ifmap_demand_mat[i, :].reshape((1,ifmap_demand_mat.shape[1]))
             ifmap_cycle_out = self.ifmap_buf.service_reads(incoming_requests_arr_np=ifmap_demand_line,
-                                                            incoming_cycles_arr=cycle_arr,skip_dram_reads=skip_dram_reads)
+                                                            incoming_cycles_arr=cycle_arr)
             ifmap_serviced_cycles += [ifmap_cycle_out[0]]
             ifmap_stalls = ifmap_cycle_out[0] - cycle_arr[0] - ifmap_hit_latency
 
@@ -186,10 +190,15 @@ class double_buffered_scratchpad:
 
             ofmap_demand_line = ofmap_demand_mat[i, :].reshape((1, ofmap_demand_mat.shape[1]))
             ofmap_cycle_out = self.ofmap_buf.service_writes(incoming_requests_arr_np=ofmap_demand_line,
-                                                             incoming_cycles_arr_np=cycle_arr,skip_dram_writes=0)
+                                                             incoming_cycles_arr_np=cycle_arr)
             ofmap_serviced_cycles += [ofmap_cycle_out[0]]
             ofmap_stalls = ofmap_cycle_out[0] - cycle_arr[0] - 1
-
+           # if(ifmap_stalls[0] != -1):
+           #     print(layer_id,"IFMAP STALLS",ifmap_stalls[0])
+           # if(filter_stalls[0] != -1):
+           #     print(layer_id,"FILTERMAP STALLS",filter_stalls[0])
+           # if(ofmap_stalls[0] != -1):
+           #     print(layer_id,"OFMAP STALLS",ofmap_stalls[0])
             self.stall_cycles += int(max(ifmap_stalls[0], filter_stalls[0], ofmap_stalls[0]))
 
         if self.estimate_bandwidth_mode:
@@ -197,9 +206,8 @@ class double_buffered_scratchpad:
             # It is harmless since, in estimate bandwidth mode, read_buffer_estimate_bw is instantiated
             self.ifmap_buf.complete_all_prefetches()
             self.filter_buf.complete_all_prefetches()
-
-        self.ofmap_buf.empty_all_buffers(ofmap_serviced_cycles[-1])
-
+        if(self.skip_dram_writes == 0 ): # Dont drain if we have NoC coz noc takes care of moving it else where.
+            self.ofmap_buf.empty_all_buffers(ofmap_serviced_cycles[-1])
         # Prepare the traces
         ifmap_services_cycles_np = np.asarray(ifmap_serviced_cycles).reshape((len(ifmap_serviced_cycles), 1))
         self.ifmap_trace_matrix = np.concatenate((ifmap_services_cycles_np, ifmap_demand_mat), axis=1)

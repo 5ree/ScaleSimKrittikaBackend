@@ -4,7 +4,7 @@ import numpy as np
 
 class write_port:
     def __init__(self):
-        self.latency = 0
+        self.latency = 100 ## We need some write latency atleast to compare against other policies
 
     def service_writes(self, incoming_requests_arr_np, incoming_cycles_arr_np):
         out_cycles_arr_np = incoming_cycles_arr_np + self.latency

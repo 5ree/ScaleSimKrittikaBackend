@@ -53,15 +53,16 @@ class write_buffer:
         # Fixing ISSUE #10
         self.trace_matrix_cache_empty = True
         self.trace_matrix_empty = True
+        self.skip_dram_writes = 0
 
     #
     def set_params(self, backing_buf_obj,
                    total_size_bytes=128, word_size=1, active_buf_frac=0.9,
-                   backing_buf_bw=100
+                   backing_buf_bw=100,skip_dram_writes=0
                    ):
         self.total_size_bytes = total_size_bytes
         self.word_size = word_size
-
+        print("Setting DRAM writes",skip_dram_writes)       
         assert 0.5 <= active_buf_frac < 1, "Valid active buf frac [0.5,1)"
         self.active_buf_frac = active_buf_frac
 
@@ -72,6 +73,8 @@ class write_buffer:
         self.active_buf_size = int(math.ceil(self.total_size_elems * self.active_buf_frac))
         self.drain_buf_size = self.total_size_elems - self.active_buf_size
         self.free_space = self.total_size_elems
+
+        self.skip_dram_writes=skip_dram_writes
 
     #
     def reset(self):
@@ -99,16 +102,18 @@ class write_buffer:
 
     #
     def store_to_trace_mat_cache(self, elem):
+        #print(elem)
         if elem == -1:
             return
 
         if self.current_line.shape == (1,1):    # This line is empty
             self.current_line = np.ones((1, self.req_gen_bandwidth)) * -1
-
+        
+        #print(self.current_line,self.line_idx)
         self.current_line[0, self.line_idx] = elem
         self.line_idx += 1
         self.free_space -= 1
-
+        #print(self.trace_matrix_cache.shape)
         if not self.line_idx < self.req_gen_bandwidth:
             # Store to the cache matrix
             # Fixing ISSUE #10
@@ -121,7 +126,7 @@ class write_buffer:
 
             self.current_line = np.ones((1,1)) * -1
             self.line_idx = 0
-
+ 
             if not self.trace_matrix_cache.shape[0] < self.max_cache_lines:
                 self.append_to_trace_mat()
 
@@ -144,12 +149,13 @@ class write_buffer:
             return
 
         #if self.trace_matrix.shape == (1,1):
-        if self.trace_matrix_empty:
-            self.trace_matrix = self.trace_matrix_cache
-            self.drain_buf_start_line_id = 0
-            self.trace_matrix_empty = False
-        else:
-            self.trace_matrix = np.concatenate((self.trace_matrix, self.trace_matrix_cache), axis=0)
+        if(self.skip_dram_writes == 0) : # We dont want the traces to be generated but whilst still making sure everyhting works
+            if self.trace_matrix_empty:
+                self.trace_matrix = self.trace_matrix_cache
+                self.drain_buf_start_line_id = 0
+                self.trace_matrix_empty = False
+            else:
+                self.trace_matrix = np.concatenate((self.trace_matrix, self.trace_matrix_cache), axis=0)
 
         self.trace_matrix_cache = np.zeros((1,1))
         # Fixing ISSUE #10
@@ -160,31 +166,38 @@ class write_buffer:
         assert incoming_cycles_arr_np.shape[0] == incoming_requests_arr_np.shape[0], 'Cycles and requests do not match'
         out_cycles_arr = []
         offset = 0
-
         DEBUG_num_drains = 0
         DEBUG_append_to_trace_times = []
-
+      #  print("Y     O",incoming_requests_arr_np)
         for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
             row = incoming_requests_arr_np[i]
             cycle = incoming_cycles_arr_np[i]
             current_cycle = cycle[0] + offset
-
+           # print("curr",current_cycle,"ccyle",cycle[0])
             for elem in row:
                 # Pay no attention to empty requests
                 if elem == -1:
+                   # print("Continueing due to -1")
                     continue
-
+                
                 self.store_to_trace_mat_cache(elem)
-
+                #print("Cur cyle",current_cycle,"Drain end",self.drain_end_cycle, "Free",self.free_space,"drain buf size",self.drain_buf_size)
                 if current_cycle < self.drain_end_cycle:
                     if not self.free_space > 0:
                         offset += max(self.drain_end_cycle - current_cycle, 0)
+                        #print("Offset",offset)
                         current_cycle = self.drain_end_cycle
-
+                
                 elif self.free_space < (self.total_size_elems - self.drain_buf_size):
                     self.append_to_trace_mat(force=True)
-                    self.drain_end_cycle = self.empty_drain_buf(empty_start_cycle=current_cycle)
-
+                    if(self.skip_dram_writes == 1):
+                        self.drain_end_cycle = current_cycle # Maybe + 1 i am not sure.
+                        self.trace_valid = True ## We Need this otherwise , trace matrix cant be accessed
+                        self.free_space += (self.total_size_elems - self.drain_buf_size) 
+                        ## Gotta get back
+                    else:
+                        self.drain_end_cycle = self.empty_drain_buf(empty_start_cycle=current_cycle)
+           # print("Final cycle",current_cycle)
             out_cycles_arr.append(current_cycle)
 
         num_lines = incoming_requests_arr_np.shape[0]
@@ -217,15 +230,15 @@ class write_buffer:
         cycles_arr = [x+empty_start_cycle for x in range(num_lines)]
         cycles_arr_np = np.asarray(cycles_arr).reshape((num_lines, 1))
         serviced_cycles_arr = self.backing_buffer.service_writes(requests_arr_np, cycles_arr_np)
-
         # Assign the cycles vector which will be used to generate the complete trace
         if not self.trace_valid:
             self.cycles_vec = serviced_cycles_arr
             self.trace_valid = True
         else:
             self.cycles_vec = np.concatenate((self.cycles_vec, serviced_cycles_arr), axis=0)
-
+        
         service_end_cycle = serviced_cycles_arr[-1][0]
+        #print("Service end cycle",service_end_cycle)
         self.free_space += data_sz_to_drain
 
         self.drain_buf_start_line_id = self.drain_buf_end_line_id
@@ -237,7 +250,7 @@ class write_buffer:
 
         if self.trace_matrix_empty:
            return
-
+        
         while self.drain_buf_start_line_id < self.trace_matrix.shape[0]:
             self.drain_end_cycle = self.empty_drain_buf(empty_start_cycle=cycle)
             cycle = self.drain_end_cycle + 1

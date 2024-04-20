@@ -2,7 +2,7 @@
 
 class read_port:
     def __init__(self):
-        self.latency = 1
+        self.latency = 200  ## Changing it to a default value for now.
 
     def set_params(self, latency):
         self.latency = latency

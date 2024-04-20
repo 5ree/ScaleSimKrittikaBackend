@@ -18,6 +18,7 @@ class read_buffer:
         # Buffer properties: Calculated
         self.total_size_elems = math.floor(self.total_size_bytes / self.word_size)
         self.active_buf_size = int(math.ceil(self.total_size_elems * 0.9))
+        
         self.prefetch_buf_size = self.total_size_elems - self.active_buf_size
 
         # Backing interface properties
@@ -48,16 +49,17 @@ class read_buffer:
         self.active_buf_full_flag = False
         self.hashed_buffer_valid = False
         self.trace_valid = False
+        self.skip_dram_reads = 0
 
     #
     def set_params(self, backing_buf_obj,
                    total_size_bytes=1, word_size=1, active_buf_frac=0.9,
-                   hit_latency=1, backing_buf_bw=1
+                   hit_latency=1, backing_buf_bw=1, skip_dram_reads = 0
                    ):
 
         self.total_size_bytes = total_size_bytes
         self.word_size = word_size
-
+        self.skip_dram_reads = skip_dram_reads
         assert 0.5 <= active_buf_frac < 1, "Valid active buf frac [0.5,1)"
         self.active_buf_frac = round(active_buf_frac, 2)
         self.hit_latency = hit_latency
@@ -69,7 +71,7 @@ class read_buffer:
         self.total_size_elems = math.floor(self.total_size_bytes / self.word_size)
         self.active_buf_size = int(math.ceil(self.total_size_elems * self.active_buf_frac))
         self.prefetch_buf_size = self.total_size_elems - self.active_buf_size
-
+        #print("Init   ",self.total_size_elems,self.active_buf_size,self.prefetch_buf_size,self.active_buf_frac)
     #
     def reset(self): # TODO: check if all resets are working propoerly
         # Buffer properties: User specified
@@ -113,7 +115,8 @@ class read_buffer:
     def set_fetch_matrix(self, fetch_matrix_np):
         # The operand matrix determines what to pre-fetch into both active and prefetch buffers
         # In 'user' mode, this will be set in the set_params
-
+        #("Here") ## in user mode only 
+        #print(fetch_matrix_np.shape[0],fetch_matrix_np.shape[1],self.req_gen_bandwidth,fetch_matrix_np)
         num_elems = fetch_matrix_np.shape[0] * fetch_matrix_np.shape[1]
         num_lines = int(math.ceil(num_elems / self.req_gen_bandwidth))
         self.fetch_matrix = np.ones((num_lines, self.req_gen_bandwidth)) * -1
@@ -131,6 +134,7 @@ class read_buffer:
             self.fetch_matrix[dest_row][dest_col] = fetch_matrix_np[src_row][src_col]
 
         # Once the fetch matrices are set, populate the data structure for fast lookups and servicing
+       # print(self.fetch_matrix.shape,self.fetch_matrix)
         self.prepare_hashed_buffer()
 
     #
@@ -206,19 +210,19 @@ class read_buffer:
 
     #
     def service_reads(self, incoming_requests_arr_np,   # 2D array with the requests
-                            incoming_cycles_arr,skip_dram_reads=0):       # 1D vector with the cycles at which req arrived
+                            incoming_cycles_arr):       # 1D vector with the cycles at which req arrived
         # Service the incoming read requests
         # returns a cycles array corresponding to the requests buffer
         # Logic: Always check if an addr is in active buffer.
         #        If hit, return with hit latency
         #        Else, make the contents of prefetch buffer as active and then check
         #              finish till an ongoing prefetch is done before reassiging prefetch buffer
-
+        #print("Am i even in serive reads?")
         if not self.active_buf_full_flag:
             start_cycle = incoming_cycles_arr[0][0]
             self.prefetch_active_buffer(start_cycle=start_cycle)    # Needs to use the entire operand matrix
                                                                     # keeping in mind the tile order and everything
-
+        #print(incoming_requests_arr_np)
         out_cycles_arr = []
         offset = self.hit_latency
         # for cycle, request_line in tqdm(zip(incoming_cycles_arr, incoming_requests_arr_np)):
@@ -227,21 +231,22 @@ class read_buffer:
             # Fixing for ISSUE #14
             # request_line = set(incoming_requests_arr_np[i]) #shaves off a few seconds
             request_line = incoming_requests_arr_np[i]
-
+            #print(request_line)
             for addr in request_line:
                 if addr == -1:
                     continue
-
+                #print("Are we Hitting?")
                 # if addr not in self.active_buffer_contents: #this is super slow!!!
                 # Fixing for ISSUE #14
                 # if not self.active_buffer_hit(addr):  # --> While loop ensures multiple prefetches if needed
                 
-                    while not self.active_buffer_hit(addr):
-                        self.new_prefetch()
-                        potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
-                        if(skip_dram_reads == 0):  ### you still need to read DRAM for the matrices to be present.
-                            potential_stall_cycles =0 
-                        offset += potential_stall_cycles        # Offset increments if there were potential stalls
+                while not self.active_buffer_hit(addr):
+                    self.new_prefetch()
+                    #print("Are we missing?")
+                    potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
+                    if(self.skip_dram_reads == 1):  ### you still need to read DRAM for the matrices to be present.
+                        potential_stall_cycles = 0 
+                    offset += potential_stall_cycles        # Offset increments if there were potential stalls
 
             out_cycles = cycle + offset
             out_cycles_arr.append(out_cycles)
@@ -254,22 +259,24 @@ class read_buffer:
     def prefetch_active_buffer(self, start_cycle):
         # Depending on size of the active buffer, calculate the number of lines from op mat to fetch
         # Also, calculate the cycles arr for requests
-
+        #print("Prefetch active buffer")
         # 1. Preparing the requests:
         num_lines = math.ceil(self.active_buf_size / self.req_gen_bandwidth)
         if not num_lines < self.fetch_matrix.shape[0]:
             num_lines = self.fetch_matrix.shape[0]
 
         requested_data_size = num_lines * self.req_gen_bandwidth
-        self.num_access += requested_data_size
+        if (self.skip_dram_reads == 0):
+            self.num_access += requested_data_size
 
         start_idx = 0
         end_idx = num_lines
-
+        #print("Fetch shape",self.fetch_matrix.shape,num_lines,requested_data_size)
         prefetch_requests = self.fetch_matrix[start_idx:end_idx, :]
-
+        #print("Printi it",prefetch_requests)
         # 1.1 See if extra requests are made, if so nullify them
         self.next_col_prefetch_idx = 0
+       # print(requested_data_size,self.active_buf_size)
         if requested_data_size > self.active_buf_size:
             valid_cols = int(self.active_buf_size % self.req_gen_bandwidth)
             row = end_idx - 1
@@ -293,7 +300,8 @@ class read_buffer:
         self.last_prefect_cycle = int(response_cycles_arr[-1][0])
 
         # Update the trace matrix
-        self.trace_matrix = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)
+        if (self.skip_dram_reads == 0):
+            self.trace_matrix = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)
         self.trace_valid = True
 
         # Set active buffer contents
@@ -320,7 +328,7 @@ class read_buffer:
         # In this case we overwrite some data in the active buffer with the prefetched data
         # And then create a new prefetch request
         # Also return when the prefetched data was made available
-
+        #print("New prefetch")
         # 1. Rewrite the active buffer
         assert self.active_buf_full_flag, 'Active buffer is empty'
         active_start, active_end = self.active_buffer_set_limits
@@ -335,6 +343,7 @@ class read_buffer:
 
         # 2. Create the request
         start_idx = self.next_line_prefetch_idx
+        #print("Next line prefetch idx",start_idx)
         num_lines = math.ceil(self.prefetch_buf_size / self.req_gen_bandwidth)
         end_idx = start_idx + num_lines
         requested_data_size = num_lines * self.req_gen_bandwidth
@@ -379,7 +388,8 @@ class read_buffer:
         assert response_cycles_arr.shape == cycles_arr.shape, 'The request and response cycles dims do not match'
 
         this_prefetch_trace = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)
-        self.trace_matrix = np.concatenate((self.trace_matrix, this_prefetch_trace), axis=0)
+        if(self.skip_dram_reads == 0):
+            self.trace_matrix = np.concatenate((self.trace_matrix, this_prefetch_trace), axis=0)
 
         # Set the line to be prefetched next
         if requested_data_size > self.active_buf_size:

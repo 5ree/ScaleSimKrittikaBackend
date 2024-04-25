@@ -63,8 +63,8 @@ class write_buffer:
         self.total_size_bytes = total_size_bytes
         self.word_size = word_size
         print("Setting DRAM writes",skip_dram_writes)       
-        assert 0.5 <= active_buf_frac < 1, "Valid active buf frac [0.5,1)"
-        self.active_buf_frac = active_buf_frac
+        assert 0.5 <= active_buf_frac <= 1, "Valid active buf frac [0.5,1)"
+        self.active_buf_frac = 0.99#active_buf_frac
 
         self.backing_buffer = backing_buf_obj
         self.req_gen_bandwidth = backing_buf_bw
@@ -168,6 +168,7 @@ class write_buffer:
         offset = 0
         DEBUG_num_drains = 0
         DEBUG_append_to_trace_times = []
+        #print("Active Bug Write",self.active_buf_frac)
       #  print("Y     O",incoming_requests_arr_np)
         for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
             row = incoming_requests_arr_np[i]

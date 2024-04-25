@@ -144,7 +144,7 @@ class single_layer_sim:
         # 2.1 Setup the memory system if it was not setup externally
         if not self.memory_system_ready_flag:
             word_size = 1           # bytes, this can be incorporated in the config file
-            active_buf_frac = 0.5   # This can be incorporated in the config as well
+            active_buf_frac = 0.99   # This can be incorporated in the config as well
 
             ifmap_buf_size_kb, filter_buf_size_kb, ofmap_buf_size_kb = self.config.get_mem_sizes()
             ifmap_buf_size_bytes = 1024 * ifmap_buf_size_kb
@@ -170,7 +170,7 @@ class single_layer_sim:
                 ifmap_backing_bw = 10
                 filter_backing_bw = 10
                 ofmap_backing_bw = arr_col
-
+            print("Settiong",active_buf_frac)
             self.memory_system.set_params(
                     word_size=word_size,
                     ifmap_buf_size_bytes=ifmap_buf_size_bytes,

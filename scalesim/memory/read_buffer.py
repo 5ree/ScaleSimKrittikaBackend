@@ -60,8 +60,8 @@ class read_buffer:
         self.total_size_bytes = total_size_bytes
         self.word_size = word_size
         self.skip_dram_reads = skip_dram_reads
-        assert 0.5 <= active_buf_frac < 1, "Valid active buf frac [0.5,1)"
-        self.active_buf_frac = round(active_buf_frac, 2)
+        assert 0.5 <= active_buf_frac <= 1, "Valid active buf frac [0.5,1)"
+        self.active_buf_frac = 0.99#round(active_buf_frac, 2)
         self.hit_latency = hit_latency
 
         self.backing_buffer = backing_buf_obj
@@ -71,7 +71,8 @@ class read_buffer:
         self.total_size_elems = math.floor(self.total_size_bytes / self.word_size)
         self.active_buf_size = int(math.ceil(self.total_size_elems * self.active_buf_frac))
         self.prefetch_buf_size = self.total_size_elems - self.active_buf_size
-        #print("Init   ",self.total_size_elems,self.active_buf_size,self.prefetch_buf_size,self.active_buf_frac)
+
+        print("Init  1 ",self.total_size_elems,self.active_buf_size,self.prefetch_buf_size,self.active_buf_frac)
     #
     def reset(self): # TODO: check if all resets are working propoerly
         # Buffer properties: User specified
@@ -242,11 +243,12 @@ class read_buffer:
                 
                 while not self.active_buffer_hit(addr):
                     self.new_prefetch()
-                    #print("Are we missing?")
+                   # print("Are we missing?",self.last_prefect_cycle,cycle,offset)
                     potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
                     if(self.skip_dram_reads == 1):  ### you still need to read DRAM for the matrices to be present.
                         potential_stall_cycles = 0 
                     offset += potential_stall_cycles        # Offset increments if there were potential stalls
+                   # print("OFFSET",offset)
 
             out_cycles = cycle + offset
             out_cycles_arr.append(out_cycles)

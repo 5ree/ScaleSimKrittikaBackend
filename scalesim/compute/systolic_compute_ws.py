@@ -281,7 +281,7 @@ class systolic_compute_ws:
     #
     def create_ofmap_demand_mat(self):
         assert self.params_set_flag, 'Parameters are not set'
-
+        print("Hellp")
         inter_fold_gap_prefix = 2 * self.arr_row - 1
         inter_fold_gap_prefix_mat = np.ones((inter_fold_gap_prefix, self.arr_col)) * -1
 

@@ -46,6 +46,9 @@ class systolic_compute_os:
         self.params_set_flag = False
         self.prefetch_mat_ready_flag = False
         self.demand_mat_ready_flag = False
+        self.total_tiles_ifmap = 0
+        self.total_tiles_filter_map = 0
+        self.total_tiles_ofmap = 0
 
     #
     def set_params(self,
@@ -76,6 +79,8 @@ class systolic_compute_os:
         self.col_fold = math.ceil(self.Sc / self.arr_col)
 
         self.params_set_flag = True
+
+
 
     #
     def create_prefetch_matrices(self):
@@ -218,8 +223,8 @@ class systolic_compute_os:
 
     #
     def create_ifmap_demand_mat(self):
+        print("Calling ifmap create")
         assert self.params_set_flag, 'Parameters are not set'
-
         # Anand: Concatenation issue fix
         inter_fold_gap_suffix = self.arr_col - 1
         inter_fold_gap_suffix_mat = np.ones((inter_fold_gap_suffix, self.arr_row)) * -1
@@ -251,14 +256,16 @@ class systolic_compute_os:
 
                 # Add skew to the IFMAP demand matrix to reflect systolic pipeline fill
                 this_fold_demand = skew_matrix(this_fold_demand)
-
+                self.total_tiles_ifmap+=1
+                #print(this_fold_demand)
+                #print("YO Tile ends in IFMAPO")
                 if fr == 0 and fc == 0:
                     self.ifmap_demand_matrix = this_fold_demand
                 else:
                     self.ifmap_demand_matrix = np.concatenate((self.ifmap_demand_matrix, this_fold_demand), axis=0)
 
                 pbar.update(1)
-
+        ##print("YO",self.ifmap_demand_matrix)
         pbar.close()
         # TODO: cleanup
         # Add skew to the IFMAP demand matrix to reflect systolic pipeline fill
@@ -296,7 +303,9 @@ class systolic_compute_os:
 
                 # Add skew to the Filter demand matrix to reflect systolic pipeline fill
                 this_fold_demand = skew_matrix(this_fold_demand)
-
+                self.total_tiles_filter_map+=1
+                #print(this_fold_demand)
+                #print("YO Tile ends in Filter MAPO")
                 if fr == 0 and fc == 0:
                     self.filter_demand_matrix = this_fold_demand
                 else:
@@ -351,6 +360,7 @@ class systolic_compute_os:
                 # Now add the prefix matrix
                 # These are the null demands to account for when the operands are streamed in
                 # and the OFMAPS are not ready
+                
                 this_fold_demand = np.concatenate((inter_fold_gap_prefix_mat, this_fold_demand), axis=0)
 
                 # Calculate the mapping efficiency
@@ -368,7 +378,7 @@ class systolic_compute_os:
 
                 # Add skew to the OFMAP demand matrix to reflect systolic pipeline fill
                 this_fold_demand = skew_matrix(this_fold_demand)
-
+                self.total_tiles_ofmap+=1
                 if fr == 0 and fc == 0:
                     self.ofmap_demand_matrix = this_fold_demand
                 else:

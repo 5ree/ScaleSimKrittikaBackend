@@ -62,9 +62,9 @@ class write_buffer:
                    ):
         self.total_size_bytes = total_size_bytes
         self.word_size = word_size
-        print("Setting DRAM writes",skip_dram_writes)       
+        #print("Setting DRAM writes",skip_dram_writes)       
         assert 0.5 <= active_buf_frac <= 1, "Valid active buf frac [0.5,1)"
-        self.active_buf_frac = 0.99#active_buf_frac
+        self.active_buf_frac = 0.5#active_buf_frac
 
         self.backing_buffer = backing_buf_obj
         self.req_gen_bandwidth = backing_buf_bw
@@ -80,7 +80,7 @@ class write_buffer:
     def reset(self):
         self.total_size_bytes = 128
         self.word_size = 1
-        self.active_buf_frac = 0.9
+        self.active_buf_frac = 0.999
 
         self.backing_buffer = write_buffer()
         self.req_gen_bandwidth = 100
@@ -170,7 +170,8 @@ class write_buffer:
         DEBUG_append_to_trace_times = []
         #print("Active Bug Write",self.active_buf_frac)
       #  print("Y     O",incoming_requests_arr_np)
-        for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
+        #for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
+        for i in range(incoming_requests_arr_np.shape[0]):
             row = incoming_requests_arr_np[i]
             cycle = incoming_cycles_arr_np[i]
             current_cycle = cycle[0] + offset
@@ -193,6 +194,7 @@ class write_buffer:
                     self.append_to_trace_mat(force=True)
                     if(self.skip_dram_writes == 1):
                         self.drain_end_cycle = current_cycle # Maybe + 1 i am not sure.
+                        #print("Setting write trace valid")
                         self.trace_valid = True ## We Need this otherwise , trace matrix cant be accessed
                         self.free_space += (self.total_size_elems - self.drain_buf_size) 
                         ## Gotta get back
@@ -213,7 +215,7 @@ class write_buffer:
 
     #
     def empty_drain_buf(self, empty_start_cycle=0):
-
+        #print("In here empy drain buff",self.trace_valid)
         lines_to_fill_dbuf = int(math.ceil(self.drain_buf_size / self.req_gen_bandwidth))
         self.drain_buf_end_line_id = self.drain_buf_start_line_id + lines_to_fill_dbuf
         self.drain_buf_end_line_id = min(self.drain_buf_end_line_id, self.trace_matrix.shape[0])
@@ -251,7 +253,6 @@ class write_buffer:
 
         if self.trace_matrix_empty:
            return
-        
         while self.drain_buf_start_line_id < self.trace_matrix.shape[0]:
             self.drain_end_cycle = self.empty_drain_buf(empty_start_cycle=cycle)
             cycle = self.drain_end_cycle + 1
@@ -261,7 +262,14 @@ class write_buffer:
         if not self.trace_valid:
             print('No trace has been generated yet')
             return
-
+        #print(self.cycles_vec.shape)
+        #print(self.trace_matrix)
+        if  self.cycles_vec.shape == (0,1):
+            self.cycles_vec =np.zeros((1,1))
+        else:
+            if(self.cycles_vec.shape[0]>self.trace_matrix.shape[0]):
+                print("Removing this",self.cycles_vec[0][0])
+                self.cycles_vec = self.cycles_vec[1:]
         trace_matrix = np.concatenate((self.cycles_vec, self.trace_matrix), axis=1)
 
         return trace_matrix

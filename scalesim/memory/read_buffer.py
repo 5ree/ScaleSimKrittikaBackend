@@ -61,7 +61,7 @@ class read_buffer:
         self.word_size = word_size
         self.skip_dram_reads = skip_dram_reads
         assert 0.5 <= active_buf_frac <= 1, "Valid active buf frac [0.5,1)"
-        self.active_buf_frac = 0.99#round(active_buf_frac, 2)
+        self.active_buf_frac = active_buf_frac
         self.hit_latency = hit_latency
 
         self.backing_buffer = backing_buf_obj
@@ -72,13 +72,13 @@ class read_buffer:
         self.active_buf_size = int(math.ceil(self.total_size_elems * self.active_buf_frac))
         self.prefetch_buf_size = self.total_size_elems - self.active_buf_size
 
-        print("Init  1 ",self.total_size_elems,self.active_buf_size,self.prefetch_buf_size,self.active_buf_frac)
+        #"Init  1 ",self.total_size_elems,self.active_buf_size,self.prefetch_buf_size,self.active_buf_frac)
     #
     def reset(self): # TODO: check if all resets are working propoerly
         # Buffer properties: User specified
         self.total_size_bytes = 128
         self.word_size = 1  # Bytes
-        self.active_buf_frac = 0.9
+        self.active_buf_frac = 0.999
         self.hit_latency = 1  # Cycles after which a request is served if already in the buffer
 
         # Buffer properties: Calculated
@@ -111,6 +111,7 @@ class read_buffer:
         self.active_buf_full_flag = False
         self.hashed_buffer_valid = False
         self.trace_valid = False
+        self.skip_dram_reads = 0
 
     #
     def set_fetch_matrix(self, fetch_matrix_np):
@@ -211,7 +212,7 @@ class read_buffer:
 
     #
     def service_reads(self, incoming_requests_arr_np,   # 2D array with the requests
-                            incoming_cycles_arr):       # 1D vector with the cycles at which req arrived
+                            incoming_cycles_arr,core_id = 0):       # 1D vector with the cycles at which req arrived
         # Service the incoming read requests
         # returns a cycles array corresponding to the requests buffer
         # Logic: Always check if an addr is in active buffer.
@@ -227,7 +228,8 @@ class read_buffer:
         out_cycles_arr = []
         offset = self.hit_latency
         # for cycle, request_line in tqdm(zip(incoming_cycles_arr, incoming_requests_arr_np)):
-        for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
+        #for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
+        for i in range(incoming_requests_arr_np.shape[0]):
             cycle = incoming_cycles_arr[i]
             # Fixing for ISSUE #14
             # request_line = set(incoming_requests_arr_np[i]) #shaves off a few seconds
@@ -236,14 +238,14 @@ class read_buffer:
             for addr in request_line:
                 if addr == -1:
                     continue
-                #print("Are we Hitting?")
+                #print("Are we Hitting?",core_id)
                 # if addr not in self.active_buffer_contents: #this is super slow!!!
                 # Fixing for ISSUE #14
                 # if not self.active_buffer_hit(addr):  # --> While loop ensures multiple prefetches if needed
                 
                 while not self.active_buffer_hit(addr):
                     self.new_prefetch()
-                   # print("Are we missing?",self.last_prefect_cycle,cycle,offset)
+                    #print("Are we missing?",core_id,self.last_prefect_cycle,"CYle now",cycle,offset)
                     potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
                     if(self.skip_dram_reads == 1):  ### you still need to read DRAM for the matrices to be present.
                         potential_stall_cycles = 0 
@@ -300,7 +302,7 @@ class read_buffer:
 
         # 4. Update the variables
         self.last_prefect_cycle = int(response_cycles_arr[-1][0])
-
+        print("Ending prefetch ",self.last_prefect_cycle)
         # Update the trace matrix
         if (self.skip_dram_reads == 0):
             self.trace_matrix = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)
@@ -347,6 +349,7 @@ class read_buffer:
         start_idx = self.next_line_prefetch_idx
         #print("Next line prefetch idx",start_idx)
         num_lines = math.ceil(self.prefetch_buf_size / self.req_gen_bandwidth)
+        #print("Num lines",num_lines)
         end_idx = start_idx + num_lines
         requested_data_size = num_lines * self.req_gen_bandwidth
         self.num_access += requested_data_size
@@ -379,14 +382,14 @@ class read_buffer:
             # Fixing ISSUE #14
             # cycles_arr[i][0] = self.last_prefect_cycle + i
             cycles_arr[i][0] = self.last_prefect_cycle + i + 1
-
+        
         # 4. Send the request
         response_cycles_arr = self.backing_buffer.service_reads(incoming_cycles_arr=cycles_arr,
                                                                 incoming_requests_arr_np=prefetch_requests)
 
         # 5. Update the variables
         self.last_prefect_cycle = response_cycles_arr[-1][0]
-
+       
         assert response_cycles_arr.shape == cycles_arr.shape, 'The request and response cycles dims do not match'
 
         this_prefetch_trace = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)

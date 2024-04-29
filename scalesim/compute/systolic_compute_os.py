@@ -257,7 +257,7 @@ class systolic_compute_os:
                 # Add skew to the IFMAP demand matrix to reflect systolic pipeline fill
                 this_fold_demand = skew_matrix(this_fold_demand)
                 self.total_tiles_ifmap+=1
-                #print(this_fold_demand)
+                #print(self.total_tiles_ifmap)
                 #print("YO Tile ends in IFMAPO")
                 if fr == 0 and fc == 0:
                     self.ifmap_demand_matrix = this_fold_demand
@@ -446,8 +446,10 @@ class systolic_compute_os:
 
         agg = sum(self.mapping_efficiency_per_fold)
         num = len(self.mapping_efficiency_per_fold)
-
-        avg_mapping_eff = agg / num
+        if(num):
+            avg_mapping_eff = agg / num
+        else:
+            avg_mapping_eff = 0
 
         return avg_mapping_eff
 
@@ -458,8 +460,11 @@ class systolic_compute_os:
         agg = sum(self.compute_utility_per_fold)
         num = len(self.compute_utility_per_fold)
 
-        avg_compute_util = agg / num
-
+        #avg_compute_util = agg / num
+        if(num):
+            avg_compute_util = agg / num
+        else:
+            avg_compute_util = 0
         return avg_compute_util
 
     #

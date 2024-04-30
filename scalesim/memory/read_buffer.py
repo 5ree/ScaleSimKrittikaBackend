@@ -50,8 +50,6 @@ class read_buffer:
         self.hashed_buffer_valid = False
         self.trace_valid = False
         self.skip_dram_reads = 0
-        self.mem_tracking_id = []
-        self.mem_pushed_in_time = []
 
     #
     def set_params(self, backing_buf_obj,
@@ -214,7 +212,7 @@ class read_buffer:
 
     #
     def service_reads(self, incoming_requests_arr_np,   # 2D array with the requests
-                            incoming_cycles_arr,core_id = 0 , noc_obj = None, post = 0):       # 1D vector with the cycles at which req arrived
+                            incoming_cycles_arr,core_id = 0 , noc_obj = None, post = 0,tracking_id = {}, pushed_in_time ={}, tile_number ={}):       # 1D vector with the cycles at which req arrived
         # Service the incoming read requests
         # returns a cycles array corresponding to the requests buffer
         # Logic: Always check if an addr is in active buffer.
@@ -241,14 +239,15 @@ class read_buffer:
             for addr in request_line:
                 if addr == -1:
                     continue
-                #print("Are we Hitting?",core_id)
+               # print("Are we Hitting?",core_id)
                 # if addr not in self.active_buffer_contents: #this is super slow!!!
                 # Fixing for ISSUE #14
                 # if not self.active_buffer_hit(addr):  # --> While loop ensures multiple prefetches if needed
                 
                 while not self.active_buffer_hit(addr):
-                    self.new_prefetch(noc_obj,core_id,post)
-                    #print("Are we missing?",core_id,self.last_prefect_cycle,"CYle now",cycle,offset)
+                   # print("Missing addr",addr)
+                    self.new_prefetch(noc_obj,core_id,post,tracking_id,pushed_in_time,tile_number)
+                   # print("Are we missing?",core_id,self.last_prefect_cycle,"CYle now",cycle,offset)
                     potential_stall_cycles = self.last_prefect_cycle - (cycle + offset)
                     if(self.skip_dram_reads == 1):  ### you still need to read DRAM for the matrices to be present.
                         potential_stall_cycles = 0 
@@ -266,7 +265,7 @@ class read_buffer:
     def prefetch_active_buffer(self, start_cycle):
         # Depending on size of the active buffer, calculate the number of lines from op mat to fetch
         # Also, calculate the cycles arr for requests
-        #print("Prefetch active buffer")
+        
         # 1. Preparing the requests:
         num_lines = math.ceil(self.active_buf_size / self.req_gen_bandwidth)
         if not num_lines < self.fetch_matrix.shape[0]:
@@ -280,10 +279,10 @@ class read_buffer:
         end_idx = num_lines
         #print("Fetch shape",self.fetch_matrix.shape,num_lines,requested_data_size)
         prefetch_requests = self.fetch_matrix[start_idx:end_idx, :]
-        #print("Printi it",prefetch_requests)
+        
         # 1.1 See if extra requests are made, if so nullify them
         self.next_col_prefetch_idx = 0
-       # print(requested_data_size,self.active_buf_size)
+       
         if requested_data_size > self.active_buf_size:
             valid_cols = int(self.active_buf_size % self.req_gen_bandwidth)
             row = end_idx - 1
@@ -305,7 +304,7 @@ class read_buffer:
 
         # 4. Update the variables
         self.last_prefect_cycle = int(response_cycles_arr[-1][0])
-        print("Ending prefetch ",self.last_prefect_cycle)
+
         # Update the trace matrix
         if (self.skip_dram_reads == 0):
             self.trace_matrix = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)
@@ -330,12 +329,12 @@ class read_buffer:
             self.next_line_prefetch_idx = (num_lines + 1) % self.fetch_matrix.shape[0]
 
     #
-    def new_prefetch(self , noc_obj = None, core_id = 0 , post = 0):
+    def new_prefetch(self , noc_obj = None, core_id = 0 , post = 0, tracking_id = {},pushed_in_time = {},  tile_number = 0):
         # In a new prefetch, some portion of the original data needs to be deleted to accomodate the prefetched data
         # In this case we overwrite some data in the active buffer with the prefetched data
         # And then create a new prefetch request
         # Also return when the prefetched data was made available
-        #print("New prefetch")
+        
         # 1. Rewrite the active buffer
         assert self.active_buf_full_flag, 'Active buffer is empty'
         active_start, active_end = self.active_buffer_set_limits
@@ -350,9 +349,9 @@ class read_buffer:
 
         # 2. Create the request
         start_idx = self.next_line_prefetch_idx
-        #print("Next line prefetch idx",start_idx)
+        
         num_lines = math.ceil(self.prefetch_buf_size / self.req_gen_bandwidth)
-        #print("Num lines",num_lines)
+        
         end_idx = start_idx + num_lines
         requested_data_size = num_lines * self.req_gen_bandwidth
         self.num_access += requested_data_size
@@ -366,12 +365,12 @@ class read_buffer:
             prefetch_requests = np.concatenate((prefetch_requests, self.fetch_matrix[:new_end_idx,:]))
         else:
             prefetch_requests = self.fetch_matrix[start_idx:end_idx, :]
-
+      
         # Modify the prefetch request to drop unwanted addresses
         # a. Chomp the elements in the first line included in previous fetches
         for i in range(0, self.next_col_prefetch_idx):
             prefetch_requests[0][i] = -1
-
+   
         # b. Chomp the excess elements in the last line
         if requested_data_size > self.active_buf_size:
             valid_cols = int(self.active_buf_size % self.req_gen_bandwidth)
@@ -387,31 +386,44 @@ class read_buffer:
             cycles_arr[i][0] = self.last_prefect_cycle + i + 1
         
         # 4. Send the request
-        #print("here in noc obj")
-        #assert(noc_obj)
-        if(0):
+        if(noc_obj):
             if(post):
-                stat_noc_latency = noc_obj.get_static_latency(core_id, 5,cycles_arr.shape[0]) 
-                print("stat_noc_latency",stat_noc_latency)
-                ## hard coded a fixed 5thy core as one port. PLEASE FIX THIS LATER!!!!!!!!!!!!!
+                stat_noc_latency = noc_obj.get_static_latency(core_id, 7,cycles_arr.shape[0]) 
+                ## hard coded a fixed tthy core as one port. PLEASE FIX THIS LATER!!!!!!!!!!!!!
                 cycles_arr  = cycles_arr + stat_noc_latency
                 for i in range(cycles_arr.shape[0]):
-                    self.mem_tracking_id += [noc_obj.post(cycles_arr[i][0],core_id, 5, cycles_arr.shape[0])]
-                    self.mem_pushed_in_time +=[cycles_arr[i][0]]
+                    if not core_id in tracking_id:
+                        tracking_id[core_id]={}
+                    if not 7 in tracking_id[core_id]:
+                        tracking_id[core_id][7] ={}
+                    if not tile_number in tracking_id[core_id][7]:
+                        tracking_id[core_id][7][tile_number] ={}
+
+                    if not core_id in pushed_in_time:
+                        pushed_in_time[core_id]={}
+                    if not 7 in pushed_in_time[core_id]:
+                        pushed_in_time[core_id][7] ={}
+                    if not tile_number in pushed_in_time[core_id][7]:
+                        pushed_in_time[core_id][7][tile_number] ={}
+
+                    tracking_id[core_id][7][tile_number] = noc_obj.post(cycles_arr[i][0],core_id, 7, cycles_arr.shape[0])
+                    pushed_in_time[core_id][7][tile_number] = cycles_arr[i][0]
             else:
-                tid = self.mem_tracking_id[0]
-                self.mem_tracking_id.pop()
-                pushed_time = self.mem_pushed_in_time[0]
-                self.mem_pushed_in_time.pop()
-                noc_cycles = noc_obj.get_latency(tid) - pushed_time
-                cycles_arr  = cycles_arr + noc_cycles
-            
+                
+                if not (tracking_id and pushed_in_time ):
+                    assert(0)
+                for i in range(cycles_arr.shape[0]):
+                    tid = tracking_id[core_id][7][tile_number]
+                    
+                    pushed_time = pushed_in_time[core_id][7][tile_number]
+                    
+                    noc_cycles = noc_obj.get_latency(tid) - pushed_time
+                    cycles_arr[i][0] += noc_cycles
         response_cycles_arr = self.backing_buffer.service_reads(incoming_cycles_arr=cycles_arr,
                                                                 incoming_requests_arr_np=prefetch_requests)
-
+      
         # 5. Update the variables
         self.last_prefect_cycle = response_cycles_arr[-1][0]
-        #print("Prefetch",self.last_prefect_cycle)
         assert response_cycles_arr.shape == cycles_arr.shape, 'The request and response cycles dims do not match'
 
         this_prefetch_trace = np.concatenate((response_cycles_arr, prefetch_requests), axis=1)

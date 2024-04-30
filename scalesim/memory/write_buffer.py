@@ -168,33 +168,32 @@ class write_buffer:
         offset = 0
         DEBUG_num_drains = 0
         DEBUG_append_to_trace_times = []
-        #print("Active Bug Write",self.active_buf_frac)
-      #  print("Y     O",incoming_requests_arr_np)
+
         #for i in tqdm(range(incoming_requests_arr_np.shape[0]), disable=True):
         for i in range(incoming_requests_arr_np.shape[0]):
             row = incoming_requests_arr_np[i]
             cycle = incoming_cycles_arr_np[i]
             current_cycle = cycle[0] + offset
-           # print("curr",current_cycle,"ccyle",cycle[0])
+     
             for elem in row:
                 # Pay no attention to empty requests
                 if elem == -1:
-                   # print("Continueing due to -1")
+                   
                     continue
                 
                 self.store_to_trace_mat_cache(elem)
-                #print("Cur cyle",current_cycle,"Drain end",self.drain_end_cycle, "Free",self.free_space,"drain buf size",self.drain_buf_size)
+                
                 if current_cycle < self.drain_end_cycle:
                     if not self.free_space > 0:
                         offset += max(self.drain_end_cycle - current_cycle, 0)
-                        #print("Offset",offset)
+                        
                         current_cycle = self.drain_end_cycle
                 
                 elif self.free_space < (self.total_size_elems - self.drain_buf_size):
                     self.append_to_trace_mat(force=True)
                     if(self.skip_dram_writes == 1):
                         self.drain_end_cycle = current_cycle # Maybe + 1 i am not sure.
-                        #print("Setting write trace valid")
+                       
                         self.trace_valid = True ## We Need this otherwise , trace matrix cant be accessed
                         self.free_space += (self.total_size_elems - self.drain_buf_size) 
                         ## Gotta get back
@@ -262,8 +261,7 @@ class write_buffer:
         if not self.trace_valid:
             print('No trace has been generated yet')
             return
-        #print(self.cycles_vec.shape)
-        #print(self.trace_matrix)
+ 
         if  self.cycles_vec.shape == (0,1):
             self.cycles_vec =np.zeros((1,1))
         else:

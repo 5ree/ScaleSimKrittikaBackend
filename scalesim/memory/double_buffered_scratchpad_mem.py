@@ -30,6 +30,9 @@ class double_buffered_scratchpad:
         self.compute_cycles = 0
         self.stall_cycles = 0
 
+        self.cycles_per_tile = 0
+        
+
         self.avg_ifmap_dram_bw = 0
         self.avg_filter_dram_bw = 0
         self.avg_ofmap_dram_bw = 0
@@ -54,32 +57,43 @@ class double_buffered_scratchpad:
         self.estimate_bandwidth_mode = False,
         self.traces_valid = False
         self.params_valid_flag = True
+        self.skip_dram_reads = 0
+        self.skip_dram_writes = 0
 
+        
+        self.global_ifmap_serviced_cycles = []
+        self.global_filter_serviced_cycles = []
+        self.global_ofmap_serviced_cycles = []
+
+        
     #
     def set_params(self,
                    verbose=True,
                    estimate_bandwidth_mode=False,
                    word_size=1,
                    ifmap_buf_size_bytes=2, filter_buf_size_bytes=2, ofmap_buf_size_bytes=2,
-                   rd_buf_active_frac=0.5, wr_buf_active_frac=0.5,
-                   ifmap_backing_buf_bw=1, filter_backing_buf_bw=1, ofmap_backing_buf_bw=1):
+                   rd_buf_active_frac=0.99, wr_buf_active_frac=0.99,  #### We need no prefetching here for LP TODO
+                   ifmap_backing_buf_bw=1, filter_backing_buf_bw=1, ofmap_backing_buf_bw=1,skip_dram_reads=0,skip_dram_writes=0):
 
         self.estimate_bandwidth_mode = estimate_bandwidth_mode
-
+        self.skip_dram_reads = skip_dram_reads
+        self.skip_dram_writes = skip_dram_writes
+        #print(self.estimate_bandwidth_mode,"set params")
         if self.estimate_bandwidth_mode:
             self.ifmap_buf = rdbuf_est()
             self.filter_buf = rdbuf_est()
-
+            assert(0)
             self.ifmap_buf.set_params(backing_buf_obj=self.ifmap_port,
                                       total_size_bytes=ifmap_buf_size_bytes,
                                       word_size=word_size,
-                                      active_buf_frac=rd_buf_active_frac,
-                                      backing_buf_default_bw=ifmap_backing_buf_bw)
-
+                                      active_buf_frac=0.999,
+                                      backing_buf_default_bw=ifmap_backing_buf_bw, skip_dram_reads = skip_dram_reads)
+            if(rd_buf_active_frac == 0.99):
+                rd_buf_active_frac = 0.5
             self.filter_buf.set_params(backing_buf_obj=self.filter_port,
                                        total_size_bytes=filter_buf_size_bytes,
                                        word_size=word_size,
-                                       active_buf_frac=rd_buf_active_frac,
+                                       active_buf_frac=0.5,
                                        backing_buf_default_bw=filter_backing_buf_bw)
         else:
             self.ifmap_buf = rdbuf()
@@ -88,20 +102,21 @@ class double_buffered_scratchpad:
             self.ifmap_buf.set_params(backing_buf_obj=self.ifmap_port,
                                       total_size_bytes=ifmap_buf_size_bytes,
                                       word_size=word_size,
-                                      active_buf_frac=rd_buf_active_frac,
-                                      backing_buf_bw=ifmap_backing_buf_bw)
-
+                                      active_buf_frac=0.999,
+                                      backing_buf_bw=ifmap_backing_buf_bw, skip_dram_reads = skip_dram_reads)
+            if(rd_buf_active_frac == 0.99): ## Hardcode TODO fix later
+                rd_buf_active_frac = 0.5
             self.filter_buf.set_params(backing_buf_obj=self.filter_port,
                                        total_size_bytes=filter_buf_size_bytes,
                                        word_size=word_size,
-                                       active_buf_frac=rd_buf_active_frac,
+                                       active_buf_frac=0.5, 
                                        backing_buf_bw=filter_backing_buf_bw)
 
         self.ofmap_buf.set_params(backing_buf_obj=self.ofmap_port,
                                   total_size_bytes=ofmap_buf_size_bytes,
                                   word_size=word_size,
-                                  active_buf_frac=wr_buf_active_frac,
-                                  backing_buf_bw=ofmap_backing_buf_bw)
+                                  active_buf_frac=0.999,
+                                  backing_buf_bw=ofmap_backing_buf_bw,skip_dram_writes =skip_dram_writes )
 
         self.verbose = verbose
 
@@ -119,9 +134,52 @@ class double_buffered_scratchpad:
     #
     def reset_buffer_states(self):
 
+        self.verbose = True
+
+        self.ifmap_trace_matrix = np.zeros((1,1), dtype=int)
+        self.filter_trace_matrix = np.zeros((1,1), dtype=int)
+        self.ofmap_trace_matrix = np.zeros((1,1), dtype=int)
+
+        # Metrics to gather for generating run reports
+        self.total_cycles = 0
+        self.compute_cycles = 0
+        self.stall_cycles = 0
+
+        self.cycles_per_tile = 0
+        
+
+        self.avg_ifmap_dram_bw = 0
+        self.avg_filter_dram_bw = 0
+        self.avg_ofmap_dram_bw = 0
+
+        self.ifmap_sram_start_cycle = 0
+        self.ifmap_sram_stop_cycle = 0
+        self.filter_sram_start_cycle = 0
+        self.filter_sram_stop_cycle = 0
+        self.ofmap_sram_start_cycle = 0
+        self.ofmap_sram_stop_cycle = 0
+
+        self.ifmap_dram_start_cycle = 0
+        self.ifmap_dram_stop_cycle = 0
+        self.ifmap_dram_reads = 0
+        self.filter_dram_start_cycle = 0
+        self.filter_dram_stop_cycle = 0
+        self.filter_dram_reads = 0
+        self.ofmap_dram_start_cycle = 0
+        self.ofmap_dram_stop_cycle = 0
+        self.ofmap_dram_writes = 0
+        self.estimate_bandwidth_mode = False,
+        self.traces_valid = False
+        self.params_valid_flag = True
+        self.skip_dram_reads = 0
+        self.skip_dram_writes = 0
+        self.global_ifmap_serviced_cycles = []
+        self.global_filter_serviced_cycles = []
+        self.global_ofmap_serviced_cycles = []
         self.ifmap_buf.reset()
         self.filter_buf.reset()
         self.ofmap_buf.reset()
+        
 
     # The following are just shell methods for users to control each mem individually
     def service_ifmap_reads(self,
@@ -147,9 +205,225 @@ class double_buffered_scratchpad:
         out_cycles_arr_np = self.ofmap_buf.service_writes(incoming_requests_arr_np, incoming_cycles_arr)
 
         return out_cycles_arr_np
-
     #
-    def service_memory_requests(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat):
+    def service_memory_requests_multiple_times_ls_tiled(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat, core_id = 0,tile_number = -1, init_time = 0,flush_due_to_last_tile = 0,noc_obj = None, post =0, tracking_id = {}, pushed_in_time ={}):
+
+        assert self.params_valid_flag, 'Memories not initialized yet'
+        ofmap_lines = ofmap_demand_mat.shape[0]
+        #self.total_cycles = 0 ## IDK why this needs to be reintialized to 0, the object whebnever created shoudl reset this, TODO
+        #self.stall_cycles = 0 At constructor
+        self.cycles_per_tile = 0
+        local_stall_cycles = 0 
+        ifmap_hit_latency = self.ifmap_buf.get_hit_latency()
+        filter_hit_latency = self.filter_buf.get_hit_latency()
+  
+        ifmap_serviced_cycles = []
+        filter_serviced_cycles = []
+        ofmap_serviced_cycles = [] ## Need this for cycles taken per tile. And yes we dont need to drain
+
+           ## To emulate next cyle and OFmap
+        start_cycle = np.zeros((1,1))
+        start_cycle[0][0] = int(int(init_time  )) ## we will always have this offsetted it
+        
+        pbar_disable = not self.verbose
+        #print(range(ofmap_lines))
+        #for i in tqdm(range(ofmap_lines), disable=pbar_disable):
+        for i in (range(ofmap_lines)):    
+            if(start_cycle):
+                cycle_arr = start_cycle + i + local_stall_cycles
+            else:
+                cycle_arr =  np.zeros((1,1)) + i + local_stall_cycles
+
+
+            ifmap_demand_line = ifmap_demand_mat[i, :].reshape((1,ifmap_demand_mat.shape[1]))
+            ifmap_cycle_out = self.ifmap_buf.service_reads(incoming_requests_arr_np=ifmap_demand_line,
+                                                            incoming_cycles_arr=cycle_arr,core_id = core_id, noc_obj = noc_obj , post = post, tracking_id=tracking_id, pushed_in_time=pushed_in_time, tile_number = tile_number)
+            ifmap_serviced_cycles += [ifmap_cycle_out[0]]
+            ifmap_stalls = ifmap_cycle_out[0] - cycle_arr[0] - ifmap_hit_latency
+
+            filter_demand_line = filter_demand_mat[i, :].reshape((1, filter_demand_mat.shape[1]))
+            filter_cycle_out = self.filter_buf.service_reads(incoming_requests_arr_np=filter_demand_line,
+                                                           incoming_cycles_arr=cycle_arr,core_id = core_id,noc_obj = noc_obj, post = post, tracking_id =tracking_id, pushed_in_time = pushed_in_time,tile_number = tile_number)
+            filter_serviced_cycles += [filter_cycle_out[0]]
+            filter_stalls = filter_cycle_out[0] - cycle_arr[0] - filter_hit_latency
+
+               
+            ofmap_demand_line = ofmap_demand_mat[i, :].reshape((1, ofmap_demand_mat.shape[1]))
+            ofmap_cycle_out = self.ofmap_buf.service_writes(incoming_requests_arr_np=ofmap_demand_line,
+                                                             incoming_cycles_arr_np=cycle_arr) ## Ideally writes should also need a noc tp drain but i am not considering it as of now.
+            self.global_ofmap_serviced_cycles += [ofmap_cycle_out[0]]
+            ofmap_serviced_cycles += [ofmap_cycle_out[0]]
+
+            ofmap_stalls = ofmap_cycle_out[0] - cycle_arr[0] - 1
+            self.stall_cycles += int(max(ifmap_stalls[0], filter_stalls[0], ofmap_stalls[0]))
+            local_stall_cycles += int(max(ifmap_stalls[0], filter_stalls[0], ofmap_stalls[0]))
+            
+
+
+        if self.estimate_bandwidth_mode:
+            # IDE shows warning as complete_all_prefetches is not implemented in read_buffer class
+            # It is harmless since, in estimate bandwidth mode, read_buffer_estimate_bw is instantiated
+            self.ifmap_buf.complete_all_prefetches()
+            self.filter_buf.complete_all_prefetches()
+        #if(flush_due_to_last_tile)
+        self.ofmap_buf.empty_all_buffers(self.global_ofmap_serviced_cycles[-1]) 
+            #print("Before",self.ofmap_buf.cycles_vec, self.ofmap_buf.cycles_vec.shape)
+            #self.ofmap_buf.cycles_vec = self.ofmap_buf.cycles_vec[1:]
+            #print("After",self.ofmap_buf.cycles_vec , self.ofmap_buf.cycles_vec.shape)
+            ## looks sus, as we need to drain this at the end of all tile compution # BIG TODO . Discuss
+            ## aims to account cycles for draining but then it doesnt match the theory. for now not touching it
+            ## Doing functional stuff here and repliocating it. 
+            ## IT should be okay to let it be here for all tiles
+
+        # Prepare the traces
+        ifmap_services_cycles_np = np.asarray(ifmap_serviced_cycles).reshape((len(ifmap_serviced_cycles), 1))
+
+        temp_array = (np.concatenate((ifmap_services_cycles_np, ifmap_demand_mat), axis=1))
+
+        if(self.ifmap_trace_matrix.shape == (1,1)):
+            self.ifmap_trace_matrix = temp_array
+        else:
+            self.ifmap_trace_matrix = np.vstack((self.ifmap_trace_matrix,temp_array)  )
+  
+
+        filter_services_cycles_np = np.asarray(filter_serviced_cycles).reshape((len(filter_serviced_cycles), 1))
+        
+        temp_array = (np.concatenate((filter_services_cycles_np, filter_demand_mat), axis=1))
+        #
+        if(self.filter_trace_matrix.shape == (1,1)):
+            self.filter_trace_matrix = temp_array
+        else:
+            self.filter_trace_matrix = np.vstack((self.filter_trace_matrix,  temp_array))
+        
+        ofmap_services_cycles_np = np.asarray(ofmap_serviced_cycles).reshape((len(ofmap_serviced_cycles), 1))
+      
+        temp_array = (np.concatenate((ofmap_services_cycles_np, ofmap_demand_mat), axis=1))
+      
+        if(self.ofmap_trace_matrix.shape == (1,1)):
+            self.ofmap_trace_matrix = temp_array
+        else:
+            self.ofmap_trace_matrix = np.vstack((self.ofmap_trace_matrix, temp_array ))
+
+        self.total_cycles = int(self.global_ofmap_serviced_cycles[-1][0] - self.global_ofmap_serviced_cycles[0][0]) ## only purpose is to accumulate total cycles
+        
+        self.cycles_per_tile = int(ofmap_serviced_cycles[-1][0] - start_cycle + 1) ## 
+
+        
+        # END of serving demands from memory
+        self.traces_valid = True ## ideally shoudl be set at the end of last tile But lets worru about it later TODO.
+   ############################################################################################################
+    #   
+    #
+    def service_memory_requests_multiple_times(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat, core_id = 0,tile_number = -1, init_time = 0,flush_due_to_last_tile = 0 ):
+        #print("In multple serive times##################",layer_id )
+        assert self.params_valid_flag, 'Memories not initialized yet'
+        ofmap_lines = ofmap_demand_mat.shape[0]
+        
+        self.cycles_per_tile = 0
+        local_stall_cycles = 0 
+        ifmap_hit_latency = self.ifmap_buf.get_hit_latency()
+        filter_hit_latency = self.filter_buf.get_hit_latency()
+
+        ifmap_serviced_cycles = []
+        filter_serviced_cycles = []
+        ofmap_serviced_cycles = [] ## Need this for cycles taken per tile. And yes we dont need to drain
+
+           ## To emulate next cyle and OFmap
+        start_cycle = np.zeros((1,1))
+        start_cycle[0][0] = int(int(init_time  )) ## we will always have this offsetted it
+
+        pbar_disable = not self.verbose
+        #print(range(ofmap_lines))
+        #for i in tqdm(range(ofmap_lines), disable=pbar_disable):
+        for i in (range(ofmap_lines)):    
+            if(start_cycle):
+                cycle_arr = start_cycle + i + local_stall_cycles
+            else:
+                cycle_arr =  np.zeros((1,1)) + i + local_stall_cycles
+
+            ifmap_demand_line = ifmap_demand_mat[i, :].reshape((1,ifmap_demand_mat.shape[1]))
+            ifmap_cycle_out = self.ifmap_buf.service_reads(incoming_requests_arr_np=ifmap_demand_line,
+                                                            incoming_cycles_arr=cycle_arr,core_id = core_id)
+            ifmap_serviced_cycles += [ifmap_cycle_out[0]]
+            ifmap_stalls = ifmap_cycle_out[0] - cycle_arr[0] - ifmap_hit_latency
+
+            filter_demand_line = filter_demand_mat[i, :].reshape((1, filter_demand_mat.shape[1]))
+            filter_cycle_out = self.filter_buf.service_reads(incoming_requests_arr_np=filter_demand_line,
+                                                           incoming_cycles_arr=cycle_arr,core_id = core_id)
+            filter_serviced_cycles += [filter_cycle_out[0]]
+            filter_stalls = filter_cycle_out[0] - cycle_arr[0] - filter_hit_latency
+
+               
+            ofmap_demand_line = ofmap_demand_mat[i, :].reshape((1, ofmap_demand_mat.shape[1]))
+            ofmap_cycle_out = self.ofmap_buf.service_writes(incoming_requests_arr_np=ofmap_demand_line,
+                                                             incoming_cycles_arr_np=cycle_arr)
+            self.global_ofmap_serviced_cycles += [ofmap_cycle_out[0]]
+            ofmap_serviced_cycles += [ofmap_cycle_out[0]]
+
+            ofmap_stalls = ofmap_cycle_out[0] - cycle_arr[0] - 1
+            self.stall_cycles += int(max(ifmap_stalls[0], filter_stalls[0], ofmap_stalls[0]))
+            local_stall_cycles += int(max(ifmap_stalls[0], filter_stalls[0], ofmap_stalls[0]))
+            
+        if self.estimate_bandwidth_mode:
+            # IDE shows warning as complete_all_prefetches is not implemented in read_buffer class
+            # It is harmless since, in estimate bandwidth mode, read_buffer_estimate_bw is instantiated
+            self.ifmap_buf.complete_all_prefetches()
+            self.filter_buf.complete_all_prefetches()
+        #if( ): 
+        if(self.skip_dram_writes == 0):
+            
+            self.ofmap_buf.empty_all_buffers(self.global_ofmap_serviced_cycles[-1]) 
+            #print("Before",self.ofmap_buf.cycles_vec, self.ofmap_buf.cycles_vec.shape)
+            #self.ofmap_buf.cycles_vec = self.ofmap_buf.cycles_vec[1:]
+            #print("After",self.ofmap_buf.cycles_vec , self.ofmap_buf.cycles_vec.shape)
+            ## looks sus, as we need to drain this at the end of all tile compution # BIG TODO . Discuss
+            ## aims to account cycles for draining but then it doesnt match the theory. for now not touching it
+            ## Doing functional stuff here and repliocating it. 
+            ## IT should be okay to let it be here for all tiles
+        else:
+            self.ofmap_buf.trace_valid = True ## Empty buffers sets this flag
+        # Prepare the traces
+        ifmap_services_cycles_np = np.asarray(ifmap_serviced_cycles).reshape((len(ifmap_serviced_cycles), 1))
+
+        temp_array = (np.concatenate((ifmap_services_cycles_np, ifmap_demand_mat), axis=1))
+
+        if(self.ifmap_trace_matrix.shape == (1,1)):
+            self.ifmap_trace_matrix = temp_array
+        else:
+            self.ifmap_trace_matrix = np.vstack((self.ifmap_trace_matrix,temp_array)  )
+        
+
+
+        filter_services_cycles_np = np.asarray(filter_serviced_cycles).reshape((len(filter_serviced_cycles), 1))
+        
+        temp_array = (np.concatenate((filter_services_cycles_np, filter_demand_mat), axis=1))
+        
+        if(self.filter_trace_matrix.shape == (1,1)):
+            self.filter_trace_matrix = temp_array
+        else:
+            self.filter_trace_matrix = np.vstack((self.filter_trace_matrix,  temp_array))
+        
+        ofmap_services_cycles_np = np.asarray(ofmap_serviced_cycles).reshape((len(ofmap_serviced_cycles), 1))
+        
+        temp_array = (np.concatenate((ofmap_services_cycles_np, ofmap_demand_mat), axis=1))
+        
+        if(self.ofmap_trace_matrix.shape == (1,1)):
+            self.ofmap_trace_matrix = temp_array
+        else:
+            self.ofmap_trace_matrix = np.vstack((self.ofmap_trace_matrix, temp_array ))
+        
+        
+        
+        
+        self.total_cycles = int(self.global_ofmap_serviced_cycles[-1][0] - self.global_ofmap_serviced_cycles[0][0]) ## only purpose is to accumulate total cycles
+        
+        self.cycles_per_tile = int(ofmap_serviced_cycles[-1][0] - start_cycle + 1) ## 
+
+        # END of serving demands from memory
+        self.traces_valid = True ## ideally shoudl be set at the end of last tile But lets worru about it later TODO.
+   ############################################################################################################
+    #
+    def service_memory_requests(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat, layer_id = 0 ):
         assert self.params_valid_flag, 'Memories not initialized yet'
 
         ofmap_lines = ofmap_demand_mat.shape[0]
@@ -163,12 +437,15 @@ class double_buffered_scratchpad:
         ifmap_serviced_cycles = []
         filter_serviced_cycles = []
         ofmap_serviced_cycles = []
-
+        #print(skip_dram_reads,skip_dram_writes)
+#################
+## set skip_dram_reads
+       
         pbar_disable = not self.verbose
-        for i in tqdm(range(ofmap_lines), disable=pbar_disable):
-
+        #for i in tqdm(range(ofmap_lines), disable=pbar_disable):
+        for i in (range(ofmap_lines)):
             cycle_arr = np.zeros((1,1)) + i + self.stall_cycles
-
+            #print("Cyl;e arreay",cycle_arr)
             ifmap_demand_line = ifmap_demand_mat[i, :].reshape((1,ifmap_demand_mat.shape[1]))
             ifmap_cycle_out = self.ifmap_buf.service_reads(incoming_requests_arr_np=ifmap_demand_line,
                                                             incoming_cycles_arr=cycle_arr)
@@ -194,23 +471,25 @@ class double_buffered_scratchpad:
             # It is harmless since, in estimate bandwidth mode, read_buffer_estimate_bw is instantiated
             self.ifmap_buf.complete_all_prefetches()
             self.filter_buf.complete_all_prefetches()
-
+        
         self.ofmap_buf.empty_all_buffers(ofmap_serviced_cycles[-1])
-
         # Prepare the traces
         ifmap_services_cycles_np = np.asarray(ifmap_serviced_cycles).reshape((len(ifmap_serviced_cycles), 1))
+        
         self.ifmap_trace_matrix = np.concatenate((ifmap_services_cycles_np, ifmap_demand_mat), axis=1)
-
+        
         filter_services_cycles_np = np.asarray(filter_serviced_cycles).reshape((len(filter_serviced_cycles), 1))
         self.filter_trace_matrix = np.concatenate((filter_services_cycles_np, filter_demand_mat), axis=1)
-
+        
         ofmap_services_cycles_np = np.asarray(ofmap_serviced_cycles).reshape((len(ofmap_serviced_cycles), 1))
         self.ofmap_trace_matrix = np.concatenate((ofmap_services_cycles_np, ofmap_demand_mat), axis=1)
+       
         self.total_cycles = int(ofmap_serviced_cycles[-1][0])
 
         # END of serving demands from memory
         self.traces_valid = True
 
+       
     # This is the trace computation logic of this memory system
     # Anand: This is too complex, perform the serve cycle by cycle for the requests
     def service_memory_requests_old(self, ifmap_demand_mat, filter_demand_mat, ofmap_demand_mat):

@@ -87,13 +87,14 @@ class systolic_compute_ws:
     #
     def create_ifmap_prefetch_mat(self):
         assert self.params_set_flag, 'Parameters are not set'
-
+        #print(self.row_fold)
         for fr in range(self.row_fold):
             start_col_idx = fr * self.arr_row
+            #print(fr,self.arr_row,start_col_idx)
             end_col_idx = min(start_col_idx + self.arr_row, self.Sr)
-
+           
             delta = self.arr_row - (end_col_idx - start_col_idx)
-
+            #print(end_col_idx,start_col_idx,self.Sr,delta)
             this_fold_prefetch = self.ifmap_op_mat[:,start_col_idx: end_col_idx]
 
             #If there is under utilization, fill them with null requests
@@ -280,7 +281,7 @@ class systolic_compute_ws:
     #
     def create_ofmap_demand_mat(self):
         assert self.params_set_flag, 'Parameters are not set'
-
+        print("Hellp")
         inter_fold_gap_prefix = 2 * self.arr_row - 1
         inter_fold_gap_prefix_mat = np.ones((inter_fold_gap_prefix, self.arr_col)) * -1
 
@@ -317,6 +318,7 @@ class systolic_compute_ws:
 
     #
     def get_ifmap_prefetch_mat(self):
+        #print("IFmap prefetch from scalseim")
         if not self.prefetch_mat_ready_flag:
             self.create_prefetch_matrices()
 

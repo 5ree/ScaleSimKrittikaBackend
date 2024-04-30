@@ -13,8 +13,11 @@ class operand_matrix(object):
         self.config = cfg()
         self.topoutil = topoutil()
 
+
+        self.core_id = 0 
         # Layer hyper parameters
         self.layer_id = 0
+
         self.ifmap_rows, self.ifmap_cols = 1, 1
         self.filter_rows, self.filter_cols = 1, 1
         self.num_input_channels, self.num_filters = 1, 1
@@ -48,7 +51,7 @@ class operand_matrix(object):
         self.config = config_obj
         self.topoutil = topoutil_obj
         self.layer_id = layer_id
-
+        self.core_id = layer_id ## TODO Mmanchali, add separate knob for core id
         # TODO: Marked for cleanup
         #my_name = 'operand_matrix.set_params(): '
         #err_prefix = 'Error: ' + my_name
@@ -89,7 +92,7 @@ class operand_matrix(object):
         # Assign the offsets
         self.ifmap_offset, self.filter_offset, self.ofmap_offset \
             = self.config.get_offsets()
-
+        self.offset_between_layers = 30000000 ## TODO mmanchali fix this by passing a knob . For now its overlapping
         # Address matrices: This is needed to take into account the updated dimensions
         self.ifmap_addr_matrix = np.ones((self.ofmap_px_per_filt * self.batch_size, self.conv_window_size), dtype='>i4')
         self.filter_addr_matrix = np.ones((self.conv_window_size, self.num_filters), dtype='>i4')
@@ -142,7 +145,6 @@ class operand_matrix(object):
         col_indices = np.arange(self.conv_window_size)
         # Create 2D index arrays using meshgrid
         i, j = np.meshgrid(row_indices, col_indices, indexing='ij')
-
         # Call calc_ifmap_elem_addr_numpy with 2D index arrays
         self.ifmap_addr_matrix = self.calc_ifmap_elem_addr(i, j)
         return 0
@@ -169,8 +171,8 @@ class operand_matrix(object):
         ifmap_px_addr = np.full(i.shape, -1)
         if valid_indices.any():
             internal_address = (c_row[valid_indices] * ifmap_cols + c_col[valid_indices]) * channel + c_ch[valid_indices]
-            ifmap_px_addr[valid_indices] = internal_address + window_addr[valid_indices] + offset
-
+            #print(internal_address, window_addr[valid_indices] ,offset )
+            ifmap_px_addr[valid_indices] = internal_address + window_addr[valid_indices] + offset + self.layer_id*self.offset_between_layers
         return ifmap_px_addr
 
     # creates the ofmap operand
@@ -193,7 +195,7 @@ class operand_matrix(object):
         offset = self.ofmap_offset
         num_filt = self.num_filters
         internal_address = num_filt * i + j
-        ofmap_px_addr = internal_address + offset
+        ofmap_px_addr = internal_address + offset + self.layer_id*self.offset_between_layers
         return ofmap_px_addr
 
     # creates the filter operand
@@ -218,12 +220,13 @@ class operand_matrix(object):
         filter_col = self.filter_cols
         channel = self.num_input_channels
         internal_address = j * filter_row * filter_col * channel + i
-        filter_px_addr = internal_address + offset
+        filter_px_addr = internal_address + offset + self.layer_id*self.offset_between_layers
         return filter_px_addr
 
     # function to get a part or the full ifmap operand
     def get_ifmap_matrix_part(self, start_row=0, num_rows=-1, start_col=0,
                               num_cols=-1):
+        #print("Here")
         if num_rows == -1:
             num_rows = self.ofmap_px_per_filt
         if num_cols == -1:

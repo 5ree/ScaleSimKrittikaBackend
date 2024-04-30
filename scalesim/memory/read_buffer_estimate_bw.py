@@ -54,11 +54,11 @@ class ReadBufferEstimateBw:
     #
     def set_params(self, backing_buf_obj,
                    total_size_bytes=1, word_size=1, active_buf_frac=0.9,
-                   hit_latency=1, backing_buf_default_bw=1):
+                   hit_latency=1, backing_buf_default_bw=1,skip_dram_reads = 0):
 
         self.total_size_bytes = total_size_bytes
         self.word_size = word_size
-
+        self.skip_dram_reads = skip_dram_reads
         assert 0.5 <= active_buf_frac < 1, "Valid active buf frac [0.5,1)"
         self.active_buf_frac = round(active_buf_frac, 2)
         self.hit_latency = hit_latency
@@ -89,7 +89,8 @@ class ReadBufferEstimateBw:
         self.params_set_flag = True
 
     #
-    def service_reads(self, incoming_requests_arr_np, incoming_cycles_arr):
+    def service_reads(self, incoming_requests_arr_np, incoming_cycles_arr,skip_dram_reads=0):
+        #print("Am i even in serive reads estimate ?")
         assert self.params_set_flag, 'Parameters are not set yet'
         assert incoming_cycles_arr.shape[0] == incoming_requests_arr_np.shape[0], 'Incoming cycles and requests dont match'
 

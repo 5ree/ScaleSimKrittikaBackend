@@ -44,7 +44,6 @@ class topologies(object):
 
     #
     def load_arrays_gemm(self, topofile=''):
-
         self.topo_file_name = topofile.split('/')[-1]
         name_arr = self.topo_file_name.split('.')
         if len(name_arr) > 1:
@@ -69,7 +68,7 @@ class topologies(object):
                 m = elems[1].strip()
                 n = elems[2].strip()
                 k = elems[3].strip()
-
+                #print(m,n,k)
                 # Entries: layer name, Ifmap h, ifmap w, filter h, filter w, num_ch, num_filt, stride h, stride w
                 entries = [layer_name, m, k, 1, k, 1, n, 1, 1]
                 #entries are later iterated from index 1. Index 0 is used to store layer name in convolution mode. So, to rectify assignment of M, N and K in GEMM mode, layer name has been added at index 0 of entries. 

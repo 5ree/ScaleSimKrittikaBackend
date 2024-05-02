@@ -223,7 +223,7 @@ class systolic_compute_os:
 
     #
     def create_ifmap_demand_mat(self):
-        print("Calling ifmap create")
+        
         assert self.params_set_flag, 'Parameters are not set'
         # Anand: Concatenation issue fix
         inter_fold_gap_suffix = self.arr_col - 1
